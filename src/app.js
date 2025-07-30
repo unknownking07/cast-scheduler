@@ -1,11 +1,66 @@
-// Initialize the app
-document.addEventListener('DOMContentLoaded', function() {
+// Farcaster SDK integration
+let sdk;
+
+// Initialize the Farcaster Mini App
+document.addEventListener('DOMContentLoaded', async function() {
+  try {
+    // Initialize Farcaster SDK
+    sdk = new window.FarcasterSDK();
+    
+    // Wait for SDK to be ready
+    await sdk.ready();
+    
+    // Call ready to dismiss splash screen
+    sdk.actions.ready();
+    
+    // Set up the rest of the app
+    setupApp();
+    
+    console.log('✅ Farcaster Mini App initialized successfully');
+  } catch (error) {
+    console.error('❌ Failed to initialize Farcaster SDK:', error);
+    // Still set up the app even if SDK fails
+    setupApp();
+  }
+});
+
+// App setup function
+function setupApp() {
   setupEventListeners();
   loadScheduledPosts();
   setMinDateTime();
   startScheduleChecker();
   loadDraft();
-});
+  
+  // Try to get user context from Farcaster
+  getUserContext();
+}
+
+// Get user context from Farcaster
+async function getUserContext() {
+  try {
+    if (sdk && sdk.context) {
+      const context = await sdk.context.getContext();
+      
+      if (context.user) {
+        console.log('👤 Farcaster user:', context.user.username);
+        
+        // Optionally display user info
+        updateUIWithUserInfo(context.user);
+      }
+    }
+  } catch (error) {
+    console.log('ℹ️ Running in standalone mode (not in Farcaster client)');
+  }
+}
+
+// Update UI with user information
+function updateUIWithUserInfo(user) {
+  const header = document.querySelector('.app-header p');
+  if (header && user.username) {
+    header.textContent = `Hello @${user.username}! Schedule your casts for optimal engagement times`;
+  }
+}
 
 // Local storage keys
 const STORAGE_KEY = 'scheduled_casts';
@@ -17,8 +72,8 @@ function setupEventListeners() {
   updateCharCount();
 }
 
-// Share App Functionality
-function shareApp() {
+// Enhanced share app functionality using Farcaster SDK
+async function shareApp() {
   const appUrl = window.location.href;
   const shareText = `🚀 Check out this amazing Cast Scheduler for Farcaster! 
 
@@ -26,21 +81,34 @@ function shareApp() {
 ⏰ Never miss posting at peak times
 ✨ Built as a Farcaster Mini App
 
-Perfect for content creators who want to maximize their reach on Farcaster!
+Perfect for content creators who want to maximize their reach!`;
 
-Try it here: ${appUrl}`;
+  try {
+    // Try to use Farcaster's native sharing first
+    if (sdk && sdk.actions && sdk.actions.openUrl) {
+      const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(shareText + '\n\n' + appUrl)}`;
+      await sdk.actions.openUrl(warpcastUrl);
+      return;
+    }
+  } catch (error) {
+    console.log('Native sharing not available, falling back to clipboard');
+  }
 
-  // Try to use the native share API first (works on mobile)
+  // Fallback to previous sharing method
   if (navigator.share) {
-    navigator.share({
-      title: 'Cast Scheduler - Farcaster Mini App',
-      text: shareText,
-      url: appUrl
-    }).catch(err => console.log('Error sharing:', err));
+    try {
+      await navigator.share({
+        title: 'Cast Scheduler - Farcaster Mini App',
+        text: shareText,
+        url: appUrl
+      });
+    } catch (err) {
+      console.log('Native share failed, copying to clipboard');
+      copyToClipboard(shareText + '\n\n' + appUrl);
+    }
   } else {
-    // Fallback: copy to clipboard and show modal
-    copyToClipboard(shareText);
-    showShareModal(shareText);
+    copyToClipboard(shareText + '\n\n' + appUrl);
+    showShareModal(shareText + '\n\n' + appUrl);
   }
 }
 
@@ -49,7 +117,6 @@ function copyToClipboard(text) {
     navigator.clipboard.writeText(text);
     showStatus('Share text copied to clipboard!', 'success');
   } else {
-    // Fallback for older browsers
     const textArea = document.createElement('textarea');
     textArea.value = text;
     document.body.appendChild(textArea);
@@ -74,7 +141,6 @@ function showShareModal(shareText) {
     </div>
   `;
   
-  // Add modal styles
   modal.style.cssText = `
     position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
     background: rgba(0,0,0,0.5); display: flex; align-items: center; 
@@ -87,12 +153,56 @@ function showShareModal(shareText) {
   `;
   
   document.body.appendChild(modal);
-  
-  // Close on background click
   modal.addEventListener('click', (e) => {
     if (e.target === modal) modal.remove();
   });
 }
+
+// Enhanced publish post function using Farcaster SDK
+async function publishPost(post) {
+  try {
+    let published = false;
+    
+    // Try to use Farcaster SDK for posting
+    if (sdk && sdk.actions && sdk.actions.openUrl) {
+      const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(post.content)}`;
+      await sdk.actions.openUrl(warpcastUrl);
+      published = true;
+    }
+    
+    if (published) {
+      // Mark as published
+      const posts = getScheduledPosts();
+      const updatedPosts = posts.map(p => 
+        p.id === post.id 
+          ? { ...p, status: 'published', publishedAt: new Date().toISOString() }
+          : p
+      );
+      
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
+      loadScheduledPosts();
+      showStatus(`✅ Cast ready to publish: "${post.content.substring(0, 30)}..."`, 'success');
+    } else {
+      throw new Error('No publishing method available');
+    }
+  } catch (error) {
+    console.error('Failed to publish post:', error);
+    
+    // Mark as failed but provide manual option
+    const posts = getScheduledPosts();
+    const updatedPosts = posts.map(p => 
+      p.id === post.id 
+        ? { ...p, status: 'ready', error: error.message }
+        : p
+    );
+    
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
+    showStatus(`⏰ Time to post: "${post.content.substring(0, 30)}..." - Click to open composer`, 'success');
+  }
+}
+
+// Rest of your existing functions remain the same...
+// [Include all the other functions from your previous app.js here]
 
 // Schedule form handling
 function handleScheduleSubmit(e) {
@@ -269,7 +379,7 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// Background scheduler (simplified for demo)
+// Background scheduler
 function startScheduleChecker() {
   setInterval(checkScheduledPosts, 60000);
 }
@@ -286,26 +396,4 @@ function checkScheduledPosts() {
       }
     }
   });
-}
-
-async function publishPost(post) {
-  try {
-    // In a real implementation, this would use the Farcaster API
-    console.log('Publishing post:', post.content);
-    
-    // Mark as published
-    const posts = getScheduledPosts();
-    const updatedPosts = posts.map(p => 
-      p.id === post.id 
-        ? { ...p, status: 'published', publishedAt: new Date().toISOString() }
-        : p
-    );
-    
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
-    loadScheduledPosts();
-    showStatus(`✅ Cast published: "${post.content.substring(0, 30)}..."`, 'success');
-  } catch (error) {
-    console.error('Failed to publish post:', error);
-    showStatus('❌ Failed to publish scheduled cast', 'error');
-  }
 }
