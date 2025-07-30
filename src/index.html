@@ -72,6 +72,16 @@
     </footer>
   </div>
   
+  <!-- Use the official Farcaster Mini App SDK via CDN -->
+  <script type="module">
+    import { sdk } from 'https://esm.sh/@farcaster/miniapp-sdk'
+    
+    // Make SDK available globally
+    window.farcasterSDK = sdk;
+    
+    // Initialize the app after SDK is loaded
+    window.initializeApp();
+  </script>
   <script src="app.js"></script>
 </body>
 </html>
