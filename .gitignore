@@ -1,0 +1,8 @@
+# Create a .gitignore file to exclude unnecessary files
+echo "node_modules/
+.DS_Store
+*.log
+.env
+dist/
+build/
+.vercel" > .gitignore

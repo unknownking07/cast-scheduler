@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Cast Scheduler</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Schedule your Farcaster casts for optimal engagement times">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="container">
+    <header class="app-header">
+      <h1>📅 Cast Scheduler</h1>
+      <p>Schedule your Farcaster casts for optimal engagement times</p>
+      <button class="share-app-btn" onclick="shareApp()">📢 Share This App</button>
+    </header>
+    
+    <div id="status" class="status"></div>
+    
+    <form id="schedule-form">
+      <textarea 
+        id="cast-content" 
+        placeholder="What's on your mind? Write your cast here..."
+        maxlength="320"
+      ></textarea>
+      
+      <div class="char-count">
+        <span id="char-count">0</span>/320 characters
+      </div>
+      
+      <div class="timing-section">
+        <label for="schedule-time">Schedule for:</label>
+        <input 
+          type="datetime-local" 
+          id="schedule-time" 
+          required
+        />
+      </div>
+      
+      <div class="quick-schedule">
+        <label>Quick Schedule:</label>
+        <div class="quick-buttons">
+          <button type="button" class="quick-btn" onclick="setOptimalTime('09:00')">
+            🌅 9 AM Tomorrow
+          </button>
+          <button type="button" class="quick-btn" onclick="setOptimalTime('12:00')">
+            🌞 12 PM Tomorrow
+          </button>
+          <button type="button" class="quick-btn" onclick="setOptimalTime('17:00')">
+            🌆 5 PM Tomorrow
+          </button>
+          <button type="button" class="quick-btn" onclick="setOptimalTime('20:00')">
+            🌙 8 PM Tomorrow
+          </button>
+        </div>
+      </div>
+      
+      <div class="form-actions">
+        <button type="submit" class="primary-btn">📅 Schedule Cast</button>
+        <button type="button" class="secondary-btn" onclick="saveDraft()">💾 Save Draft</button>
+      </div>
+    </form>
+    
+    <div class="scheduled-posts">
+      <h3>📋 Scheduled Posts</h3>
+      <div id="scheduled-list">
+        <!-- Scheduled posts will appear here -->
+      </div>
+    </div>
+    
+    <footer class="app-footer">
+      <p>Built for Farcaster • <a href="#" onclick="shareApp()">Share this app</a></p>
+    </footer>
+  </div>
+  
+  <script src="app.js"></script>
+</body>
+</html>
