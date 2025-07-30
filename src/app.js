@@ -12,9 +12,12 @@ window.initializeApp = async function() {
     if (farcasterSDK) {
       console.log('✅ Farcaster SDK loaded successfully');
       
-      // Call ready() to dismiss splash screen - this is the key part!
+      // Call ready() to dismiss splash screen
       await farcasterSDK.actions.ready();
       console.log('✅ sdk.actions.ready() called successfully');
+      
+      // Add the mini app to user's favorites/bookmarks
+      await addMiniAppToUser();
       
       showStatus('🎉 Cast Scheduler loaded in Farcaster!', 'success');
     } else {
@@ -30,9 +33,151 @@ window.initializeApp = async function() {
   setupApp();
 };
 
+// Add mini app to user's collection with popup
+async function addMiniAppToUser() {
+  try {
+    if (farcasterSDK && farcasterSDK.actions && farcasterSDK.actions.addFrame) {
+      // Show popup asking user to add the mini app
+      const shouldAdd = await showAddAppDialog();
+      
+      if (shouldAdd) {
+        await farcasterSDK.actions.addFrame();
+        console.log('✅ Mini app added to user collection');
+        showStatus('📌 Cast Scheduler added to your apps!', 'success');
+        
+        // Request notification permission
+        await requestNotificationPermission();
+      }
+    }
+  } catch (error) {
+    console.error('Could not add mini app:', error);
+  }
+}
+
+// Show dialog asking user to add the app
+function showAddAppDialog() {
+  return new Promise((resolve) => {
+    const modal = document.createElement('div');
+    modal.className = 'add-app-modal';
+    modal.innerHTML = `
+      <div class="add-app-modal-content">
+        <h3>📅 Add Cast Scheduler</h3>
+        <p>Add Cast Scheduler to your Farcaster apps for:</p>
+        <ul style="text-align: left; margin: 16px 0; padding-left: 20px;">
+          <li>🔔 Push notifications when posts are ready</li>
+          <li>⚡ Quick access from your app drawer</li>
+          <li>📱 Easy scheduling on the go</li>
+        </ul>
+        <div style="text-align: center; margin-top: 20px;">
+          <button id="add-yes" style="background: #8a63d2; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; margin-right: 12px; font-weight: 600;">Add to My Apps</button>
+          <button id="add-no" style="background: #6c757d; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600;">Maybe Later</button>
+        </div>
+      </div>
+    `;
+    
+    modal.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
+      background: rgba(0,0,0,0.7); display: flex; align-items: center; 
+      justify-content: center; z-index: 1000;
+    `;
+    
+    modal.querySelector('.add-app-modal-content').style.cssText = `
+      background: white; padding: 24px; border-radius: 12px; 
+      max-width: 400px; margin: 20px; color: #333; text-align: center;
+    `;
+    
+    document.body.appendChild(modal);
+    
+    modal.querySelector('#add-yes').onclick = () => {
+      modal.remove();
+      resolve(true);
+    };
+    
+    modal.querySelector('#add-no').onclick = () => {
+      modal.remove();
+      resolve(false);
+    };
+  });
+}
+
+// Request notification permission
+async function requestNotificationPermission() {
+  try {
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        showStatus('🔔 Notifications enabled! You\'ll be alerted when posts are ready.', 'success');
+        localStorage.setItem('notifications_enabled', 'true');
+      } else {
+        console.log('Notification permission denied');
+      }
+    }
+  } catch (error) {
+    console.error('Could not request notification permission:', error);
+  }
+}
+
+// Send notification when it's time to post
+function sendNotification(post) {
+  try {
+    // Check if notifications are supported and permitted
+    if ('Notification' in window && 
+        Notification.permission === 'granted' && 
+        localStorage.getItem('notifications_enabled') === 'true') {
+      
+      const notification = new Notification('⏰ Time to Post!', {
+        body: `"${post.content.substring(0, 60)}${post.content.length > 60 ? '...' : ''}"`,
+        icon: '/favicon.ico', // You can add a custom icon
+        badge: '/favicon.ico',
+        tag: `scheduled-post-${post.id}`,
+        requireInteraction: true, // Keeps notification visible until user interacts
+        actions: [
+          {
+            action: 'post',
+            title: 'Open Composer'
+          },
+          {
+            action: 'dismiss',
+            title: 'Dismiss'
+          }
+        ]
+      });
+      
+      // Handle notification click
+      notification.onclick = () => {
+        window.focus();
+        openComposerWithContent(post.content);
+        notification.close();
+      };
+      
+      // Auto-close after 10 seconds if not interacted with
+      setTimeout(() => {
+        notification.close();
+      }, 10000);
+      
+    }
+  } catch (error) {
+    console.error('Could not send notification:', error);
+  }
+}
+
+// Open Farcaster composer with content
+async function openComposerWithContent(content) {
+  try {
+    if (farcasterSDK && farcasterSDK.actions && farcasterSDK.actions.openUrl) {
+      const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(content)}`;
+      await farcasterSDK.actions.openUrl(warpcastUrl);
+    } else {
+      showPublishModal(content);
+    }
+  } catch (error) {
+    console.error('Could not open composer:', error);
+    showPublishModal(content);
+  }
+}
+
 // Fallback initialization if SDK doesn't load
 document.addEventListener('DOMContentLoaded', function() {
-  // If SDK hasn't initialized the app after 2 seconds, do it anyway
   setTimeout(() => {
     if (!window.appInitialized) {
       console.log('ℹ️ Fallback initialization - SDK not available');
@@ -58,18 +203,19 @@ function setupEventListeners() {
   updateCharCount();
 }
 
-// Enhanced share app functionality using proper SDK
+// Enhanced share app functionality
 async function shareApp() {
   const appUrl = window.location.href;
-  const shareText = `🚀 Check out this amazing Cast Scheduler for Farcaster! 
+  const shareText = `🚀 Never miss optimal posting times again! 
 
-📅 Schedule your casts for optimal engagement
-⏰ Never miss posting at peak times
-✨ Built as a Farcaster Mini App
+📅 Cast Scheduler helps you:
+• Schedule posts for peak engagement
+• Get notified when it's time to post  
+• Maximize your Farcaster reach
 
-Perfect for content creators who want to maximize their reach!
+✨ Built as a Farcaster Mini App - add it to your collection!
 
-Try it here: ${appUrl}`;
+Try it: ${appUrl}`;
 
   try {
     // Use Farcaster SDK compose cast if available
@@ -82,7 +228,7 @@ Try it here: ${appUrl}`;
     console.log('SDK sharing not available, using fallback');
   }
 
-  // Fallback to native sharing
+  // Fallback methods
   if (navigator.share) {
     try {
       await navigator.share({
@@ -96,7 +242,6 @@ Try it here: ${appUrl}`;
     }
   }
 
-  // Final fallback
   copyToClipboard(shareText);
   showShareModal(shareText);
 }
@@ -183,7 +328,7 @@ function handleScheduleSubmit(e) {
   saveScheduledPost(scheduledPost);
   clearForm();
   loadScheduledPosts();
-  showStatus('Cast scheduled successfully! 🎉', 'success');
+  showStatus('Cast scheduled successfully! 🎉 You\'ll get notified when it\'s time to post.', 'success');
 }
 
 // Quick scheduling functions
@@ -301,7 +446,7 @@ function showStatus(message, type) {
   
   setTimeout(() => {
     statusEl.style.display = 'none';
-  }, 4000);
+  }, 5000);
 }
 
 function formatDateTime(dateTimeString) {
@@ -322,9 +467,9 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// Background scheduler
+// Enhanced background scheduler with notifications
 function startScheduleChecker() {
-  setInterval(checkScheduledPosts, 60000);
+  setInterval(checkScheduledPosts, 60000); // Check every minute
 }
 
 function checkScheduledPosts() {
@@ -341,30 +486,126 @@ function checkScheduledPosts() {
   });
 }
 
-// Enhanced publish post function
+// Enhanced publish post function with notifications and popup
 async function publishPost(post) {
   try {
-    // Mark as ready
+    // Mark as ready to publish
     const posts = getScheduledPosts();
     const updatedPosts = posts.map(p => 
       p.id === post.id 
-        ? { ...p, status: 'ready', publishedAt: new Date().toISOString() }
+        ? { ...p, status: 'ready_to_publish', publishedAt: new Date().toISOString() }
         : p
     );
     
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
     loadScheduledPosts();
     
-    // Try to use Farcaster SDK to open composer
+    // Send push notification
+    sendNotification(post);
+    
+    // Show in-app popup
+    showPostReadyPopup(post);
+    
+    // If in Farcaster, try to open composer
     if (farcasterSDK && farcasterSDK.actions && farcasterSDK.actions.openUrl) {
       const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(post.content)}`;
-      await farcasterSDK.actions.openUrl(warpcastUrl);
+      setTimeout(() => {
+        farcasterSDK.actions.openUrl(warpcastUrl);
+      }, 2000); // Delay to let user see notification first
     }
-    
-    showStatus(`⏰ Time to post: "${post.content.substring(0, 40)}${post.content.length > 40 ? '...' : ''}"`, 'success');
     
   } catch (error) {
     console.error('Failed to publish post:', error);
-    showStatus('⚠️ Failed to publish scheduled cast', 'error');
+    showStatus('⚠️ Failed to prepare scheduled cast', 'error');
   }
+}
+
+// Show popup when post is ready
+function showPostReadyPopup(post) {
+  const modal = document.createElement('div');
+  modal.className = 'post-ready-modal';
+  modal.innerHTML = `
+    <div class="post-ready-modal-content">
+      <h3>⏰ Time to Post!</h3>
+      <p>Your scheduled cast is ready:</p>
+      <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin: 16px 0; font-style: italic;">
+        "${post.content}"
+      </div>
+      <div style="text-align: center; margin-top: 20px;">
+        <button id="post-now" style="background: #8a63d2; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; margin-right: 12px; font-weight: 600;">🚀 Post Now</button>
+        <button id="post-later" style="background: #6c757d; color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600;">⏰ Remind Me Later</button>
+      </div>
+    </div>
+  `;
+  
+  modal.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
+    background: rgba(0,0,0,0.8); display: flex; align-items: center; 
+    justify-content: center; z-index: 1000;
+  `;
+  
+  modal.querySelector('.post-ready-modal-content').style.cssText = `
+    background: white; padding: 24px; border-radius: 12px; 
+    max-width: 400px; margin: 20px; color: #333; text-align: center;
+    animation: slideIn 0.3s ease-out;
+  `;
+  
+  document.body.appendChild(modal);
+  
+  modal.querySelector('#post-now').onclick = () => {
+    modal.remove();
+    openComposerWithContent(post.content);
+  };
+  
+  modal.querySelector('#post-later').onclick = () => {
+    modal.remove();
+    // Reschedule for 5 minutes later
+    const newTime = new Date(Date.now() + 5 * 60 * 1000);
+    const updatedPost = { ...post, scheduleTime: newTime.toISOString(), status: 'scheduled' };
+    
+    const posts = getScheduledPosts();
+    const updatedPosts = posts.map(p => 
+      p.id === post.id ? updatedPost : p
+    );
+    
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
+    loadScheduledPosts();
+    showStatus('⏰ Reminder set for 5 minutes', 'success');
+  };
+  
+  // Auto-close after 30 seconds
+  setTimeout(() => {
+    if (document.body.contains(modal)) {
+      modal.remove();
+    }
+  }, 30000);
+}
+
+function showPublishModal(content) {
+  const modal = document.createElement('div');
+  modal.className = 'publish-modal';
+  modal.innerHTML = `
+    <div class="publish-modal-content">
+      <h3>⏰ Time to Post!</h3>
+      <p>Your scheduled cast is ready. Copy this content and post it manually:</p>
+      <textarea readonly style="width: 100%; height: 100px; margin: 12px 0; padding: 12px; border-radius: 8px; border: 1px solid #ddd; background: #f8f9fa;">${content}</textarea>
+      <div style="text-align: center;">
+        <button onclick="navigator.clipboard.writeText('${content.replace(/'/g, "\\'")}'); showStatus('Content copied!', 'success'); this.closest('.publish-modal').remove();" style="background: #8a63d2; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-right: 10px;">Copy & Close</button>
+        <button onclick="this.closest('.publish-modal').remove()" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Close</button>
+      </div>
+    </div>
+  `;
+  
+  modal.style.cssText = `
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
+    background: rgba(0,0,0,0.8); display: flex; align-items: center; 
+    justify-content: center; z-index: 1000;
+  `;
+  
+  modal.querySelector('.publish-modal-content').style.cssText = `
+    background: white; padding: 24px; border-radius: 12px; 
+    max-width: 400px; margin: 20px; color: #333;
+  `;
+  
+  document.body.appendChild(modal);
 }
