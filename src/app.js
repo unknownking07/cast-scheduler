@@ -1,28 +1,46 @@
-// Farcaster SDK integration
-let sdk;
+// Farcaster Mini App Integration
+let isInFarcaster = false;
 
-// Initialize the Farcaster Mini App
-document.addEventListener('DOMContentLoaded', async function() {
-  try {
-    // Initialize Farcaster SDK
-    sdk = new window.FarcasterSDK();
-    
-    // Wait for SDK to be ready
-    await sdk.ready();
-    
-    // Call ready to dismiss splash screen
-    sdk.actions.ready();
-    
-    // Set up the rest of the app
-    setupApp();
-    
-    console.log('✅ Farcaster Mini App initialized successfully');
-  } catch (error) {
-    console.error('❌ Failed to initialize Farcaster SDK:', error);
-    // Still set up the app even if SDK fails
-    setupApp();
+// Check if we're running inside Farcaster
+function detectFarcasterEnvironment() {
+  return typeof window !== 'undefined' && (
+    window.parent !== window || // Running in iframe
+    window.location.ancestorOrigins?.length > 0 || // Has parent origins
+    navigator.userAgent.includes('Farcaster') || // Farcaster user agent
+    window.location.href.includes('farcaster') // URL contains farcaster
+  );
+}
+
+// Initialize the app
+document.addEventListener('DOMContentLoaded', function() {
+  isInFarcaster = detectFarcasterEnvironment();
+  
+  if (isInFarcaster) {
+    try {
+      // Send ready message to parent frame (Farcaster)
+      window.parent.postMessage({ 
+        type: 'farcaster_ready',
+        ready: true 
+      }, '*');
+      
+      // Also try the standard approach
+      if (window.parent && window.parent.postMessage) {
+        window.parent.postMessage('ready', '*');
+      }
+      
+      console.log('✅ Ready message sent to Farcaster');
+    } catch (error) {
+      console.log('Could not send ready message:', error);
+    }
   }
+  
+  // Set up the app
+  setupApp();
 });
+
+// Local storage keys
+const STORAGE_KEY = 'scheduled_casts';
+const DRAFT_KEY = 'cast_draft';
 
 // App setup function
 function setupApp() {
@@ -32,39 +50,15 @@ function setupApp() {
   startScheduleChecker();
   loadDraft();
   
-  // Try to get user context from Farcaster
-  getUserContext();
+  // Show welcome message
+  const welcomeMsg = isInFarcaster ? 
+    '🎉 Cast Scheduler loaded in Farcaster!' : 
+    '📱 Running in browser mode';
+  
+  setTimeout(() => {
+    showStatus(welcomeMsg, 'success');
+  }, 500);
 }
-
-// Get user context from Farcaster
-async function getUserContext() {
-  try {
-    if (sdk && sdk.context) {
-      const context = await sdk.context.getContext();
-      
-      if (context.user) {
-        console.log('👤 Farcaster user:', context.user.username);
-        
-        // Optionally display user info
-        updateUIWithUserInfo(context.user);
-      }
-    }
-  } catch (error) {
-    console.log('ℹ️ Running in standalone mode (not in Farcaster client)');
-  }
-}
-
-// Update UI with user information
-function updateUIWithUserInfo(user) {
-  const header = document.querySelector('.app-header p');
-  if (header && user.username) {
-    header.textContent = `Hello @${user.username}! Schedule your casts for optimal engagement times`;
-  }
-}
-
-// Local storage keys
-const STORAGE_KEY = 'scheduled_casts';
-const DRAFT_KEY = 'cast_draft';
 
 function setupEventListeners() {
   document.getElementById('schedule-form').addEventListener('submit', handleScheduleSubmit);
@@ -72,7 +66,7 @@ function setupEventListeners() {
   updateCharCount();
 }
 
-// Enhanced share app functionality using Farcaster SDK
+// Enhanced share app functionality
 async function shareApp() {
   const appUrl = window.location.href;
   const shareText = `🚀 Check out this amazing Cast Scheduler for Farcaster! 
@@ -81,20 +75,11 @@ async function shareApp() {
 ⏰ Never miss posting at peak times
 ✨ Built as a Farcaster Mini App
 
-Perfect for content creators who want to maximize their reach!`;
+Perfect for content creators who want to maximize their reach!
 
-  try {
-    // Try to use Farcaster's native sharing first
-    if (sdk && sdk.actions && sdk.actions.openUrl) {
-      const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(shareText + '\n\n' + appUrl)}`;
-      await sdk.actions.openUrl(warpcastUrl);
-      return;
-    }
-  } catch (error) {
-    console.log('Native sharing not available, falling back to clipboard');
-  }
+Try it here: ${appUrl}`;
 
-  // Fallback to previous sharing method
+  // Try native sharing first
   if (navigator.share) {
     try {
       await navigator.share({
@@ -102,14 +87,15 @@ Perfect for content creators who want to maximize their reach!`;
         text: shareText,
         url: appUrl
       });
+      return;
     } catch (err) {
-      console.log('Native share failed, copying to clipboard');
-      copyToClipboard(shareText + '\n\n' + appUrl);
+      console.log('Native share failed, using fallback');
     }
-  } else {
-    copyToClipboard(shareText + '\n\n' + appUrl);
-    showShareModal(shareText + '\n\n' + appUrl);
   }
+
+  // Fallback to clipboard
+  copyToClipboard(shareText);
+  showShareModal(shareText);
 }
 
 function copyToClipboard(text) {
@@ -134,7 +120,7 @@ function showShareModal(shareText) {
     <div class="share-modal-content">
       <h3>📢 Share Cast Scheduler</h3>
       <p>Copy this message to share the app:</p>
-      <textarea readonly style="width: 100%; height: 120px; margin: 12px 0; padding: 12px; border-radius: 8px; border: 1px solid #ddd;">${shareText}</textarea>
+      <textarea readonly style="width: 100%; height: 120px; margin: 12px 0; padding: 12px; border-radius: 8px; border: 1px solid #ddd; background: #f8f9fa;">${shareText}</textarea>
       <div style="text-align: center;">
         <button onclick="this.closest('.share-modal').remove()" style="background: #8a63d2; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Close</button>
       </div>
@@ -149,7 +135,7 @@ function showShareModal(shareText) {
   
   modal.querySelector('.share-modal-content').style.cssText = `
     background: white; padding: 24px; border-radius: 12px; 
-    max-width: 400px; margin: 20px;
+    max-width: 400px; margin: 20px; color: #333;
   `;
   
   document.body.appendChild(modal);
@@ -157,52 +143,6 @@ function showShareModal(shareText) {
     if (e.target === modal) modal.remove();
   });
 }
-
-// Enhanced publish post function using Farcaster SDK
-async function publishPost(post) {
-  try {
-    let published = false;
-    
-    // Try to use Farcaster SDK for posting
-    if (sdk && sdk.actions && sdk.actions.openUrl) {
-      const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(post.content)}`;
-      await sdk.actions.openUrl(warpcastUrl);
-      published = true;
-    }
-    
-    if (published) {
-      // Mark as published
-      const posts = getScheduledPosts();
-      const updatedPosts = posts.map(p => 
-        p.id === post.id 
-          ? { ...p, status: 'published', publishedAt: new Date().toISOString() }
-          : p
-      );
-      
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
-      loadScheduledPosts();
-      showStatus(`✅ Cast ready to publish: "${post.content.substring(0, 30)}..."`, 'success');
-    } else {
-      throw new Error('No publishing method available');
-    }
-  } catch (error) {
-    console.error('Failed to publish post:', error);
-    
-    // Mark as failed but provide manual option
-    const posts = getScheduledPosts();
-    const updatedPosts = posts.map(p => 
-      p.id === post.id 
-        ? { ...p, status: 'ready', error: error.message }
-        : p
-    );
-    
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
-    showStatus(`⏰ Time to post: "${post.content.substring(0, 30)}..." - Click to open composer`, 'success');
-  }
-}
-
-// Rest of your existing functions remain the same...
-// [Include all the other functions from your previous app.js here]
 
 // Schedule form handling
 function handleScheduleSubmit(e) {
@@ -276,7 +216,7 @@ function loadScheduledPosts() {
   
   if (posts.length === 0) {
     listContainer.innerHTML = `
-      <div style="text-align: center; color: #666; padding: 20px;">
+      <div style="text-align: center; color: #d3c4f1; padding: 20px;">
         <p>📝 No scheduled posts yet</p>
         <p style="font-size: 14px; margin-top: 8px;">Create your first scheduled cast above!</p>
       </div>
@@ -339,7 +279,7 @@ function updateCharCount() {
   } else if (count > 280) {
     charCountElement.style.color = '#ffc107';
   } else {
-    charCountElement.style.color = '#666';
+    charCountElement.style.color = '#ddb8ff';
   }
 }
 
@@ -381,7 +321,7 @@ function escapeHtml(text) {
 
 // Background scheduler
 function startScheduleChecker() {
-  setInterval(checkScheduledPosts, 60000);
+  setInterval(checkScheduledPosts, 60000); // Check every minute
 }
 
 function checkScheduledPosts() {
@@ -397,3 +337,48 @@ function checkScheduledPosts() {
     }
   });
 }
+
+// Enhanced publish post function
+async function publishPost(post) {
+  try {
+    // Mark as ready to publish
+    const posts = getScheduledPosts();
+    const updatedPosts = posts.map(p => 
+      p.id === post.id 
+        ? { ...p, status: 'ready', publishedAt: new Date().toISOString() }
+        : p
+    );
+    
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
+    loadScheduledPosts();
+    
+    // Show notification with the content
+    showStatus(`⏰ Time to post: "${post.content.substring(0, 40)}${post.content.length > 40 ? '...' : ''}"`, 'success');
+    
+    // If in Farcaster, try to open composer
+    if (isInFarcaster) {
+      const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(post.content)}`;
+      
+      try {
+        // Try to send message to parent frame
+        window.parent.postMessage({
+          type: 'farcaster_open_url',
+          url: warpcastUrl
+        }, '*');
+      } catch (error) {
+        console.log('Could not open composer automatically');
+      }
+    }
+    
+  } catch (error) {
+    console.error('Failed to publish post:', error);
+    showStatus('⚠️ Failed to publish scheduled cast', 'error');
+  }
+}
+
+// Handle messages from parent frame (if running in Farcaster)
+window.addEventListener('message', function(event) {
+  if (event.data && event.data.type === 'farcaster_ready_ack') {
+    console.log('✅ Received ready acknowledgment from Farcaster');
+  }
+});
