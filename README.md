@@ -33,7 +33,7 @@
 
 ## 🚀 Live Demo
 
-**Try it now**: [Cast Scheduler Mini App](https://your-vercel-app.vercel.app)
+**Try it now**: [Cast Scheduler Mini App](https://cast-scheduler.vercel.app/)
 
 ## 📱 Screenshots
 
