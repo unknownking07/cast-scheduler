@@ -6,17 +6,14 @@ const DRAFT_KEY = 'cast_draft';
 // Initialize the app - called from HTML after SDK loads
 window.initializeApp = async function() {
   try {
-    // Get the SDK from global scope
     farcasterSDK = window.farcasterSDK;
     
     if (farcasterSDK) {
       console.log('✅ Farcaster SDK loaded successfully');
-      
-      // Call ready() to dismiss splash screen
       await farcasterSDK.actions.ready();
       console.log('✅ sdk.actions.ready() called successfully');
       
-      // Add the mini app to user's favorites/bookmarks
+      // Add the mini app to user's favorites/bookmarks using correct function
       await addMiniAppToUser();
       
       showStatus('🎉 Cast Scheduler loaded in Farcaster!', 'success');
@@ -29,19 +26,19 @@ window.initializeApp = async function() {
     showStatus('⚠️ Running in compatibility mode', 'success');
   }
   
-  // Set up the app regardless of SDK status
   setupApp();
 };
 
-// Add mini app to user's collection with popup
+// Add mini app to user's collection with popup - CORRECTED VERSION
 async function addMiniAppToUser() {
   try {
-    if (farcasterSDK && farcasterSDK.actions && farcasterSDK.actions.addFrame) {
+    if (farcasterSDK && farcasterSDK.actions && farcasterSDK.actions.addMiniApp) {
       // Show popup asking user to add the mini app
       const shouldAdd = await showAddAppDialog();
       
       if (shouldAdd) {
-        await farcasterSDK.actions.addFrame();
+        // Use the correct function from the official docs
+        await farcasterSDK.actions.addMiniApp();
         console.log('✅ Mini app added to user collection');
         showStatus('📌 Cast Scheduler added to your apps!', 'success');
         
@@ -50,7 +47,15 @@ async function addMiniAppToUser() {
       }
     }
   } catch (error) {
-    console.error('Could not add mini app:', error);
+    if (error.message === 'RejectedByUser') {
+      console.log('User rejected adding the mini app');
+      showStatus('📱 You can add Cast Scheduler later from the menu', 'success');
+    } else if (error.message === 'InvalidDomainManifestJson') {
+      console.error('Invalid farcaster.json manifest');
+      showStatus('⚠️ App configuration issue - running in standalone mode', 'error');
+    } else {
+      console.error('Could not add mini app:', error);
+    }
   }
 }
 
@@ -108,71 +113,10 @@ async function requestNotificationPermission() {
       if (permission === 'granted') {
         showStatus('🔔 Notifications enabled! You\'ll be alerted when posts are ready.', 'success');
         localStorage.setItem('notifications_enabled', 'true');
-      } else {
-        console.log('Notification permission denied');
       }
     }
   } catch (error) {
     console.error('Could not request notification permission:', error);
-  }
-}
-
-// Send notification when it's time to post
-function sendNotification(post) {
-  try {
-    // Check if notifications are supported and permitted
-    if ('Notification' in window && 
-        Notification.permission === 'granted' && 
-        localStorage.getItem('notifications_enabled') === 'true') {
-      
-      const notification = new Notification('⏰ Time to Post!', {
-        body: `"${post.content.substring(0, 60)}${post.content.length > 60 ? '...' : ''}"`,
-        icon: '/favicon.ico', // You can add a custom icon
-        badge: '/favicon.ico',
-        tag: `scheduled-post-${post.id}`,
-        requireInteraction: true, // Keeps notification visible until user interacts
-        actions: [
-          {
-            action: 'post',
-            title: 'Open Composer'
-          },
-          {
-            action: 'dismiss',
-            title: 'Dismiss'
-          }
-        ]
-      });
-      
-      // Handle notification click
-      notification.onclick = () => {
-        window.focus();
-        openComposerWithContent(post.content);
-        notification.close();
-      };
-      
-      // Auto-close after 10 seconds if not interacted with
-      setTimeout(() => {
-        notification.close();
-      }, 10000);
-      
-    }
-  } catch (error) {
-    console.error('Could not send notification:', error);
-  }
-}
-
-// Open Farcaster composer with content
-async function openComposerWithContent(content) {
-  try {
-    if (farcasterSDK && farcasterSDK.actions && farcasterSDK.actions.openUrl) {
-      const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(content)}`;
-      await farcasterSDK.actions.openUrl(warpcastUrl);
-    } else {
-      showPublishModal(content);
-    }
-  } catch (error) {
-    console.error('Could not open composer:', error);
-    showPublishModal(content);
   }
 }
 
@@ -218,7 +162,6 @@ async function shareApp() {
 Try it: ${appUrl}`;
 
   try {
-    // Use Farcaster SDK compose cast if available
     if (farcasterSDK && farcasterSDK.actions && farcasterSDK.actions.openUrl) {
       const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(shareText)}`;
       await farcasterSDK.actions.openUrl(warpcastUrl);
@@ -228,7 +171,6 @@ Try it: ${appUrl}`;
     console.log('SDK sharing not available, using fallback');
   }
 
-  // Fallback methods
   if (navigator.share) {
     try {
       await navigator.share({
@@ -467,9 +409,9 @@ function escapeHtml(text) {
   return div.innerHTML;
 }
 
-// Enhanced background scheduler with notifications
+// Background scheduler with notifications
 function startScheduleChecker() {
-  setInterval(checkScheduledPosts, 60000); // Check every minute
+  setInterval(checkScheduledPosts, 60000);
 }
 
 function checkScheduledPosts() {
@@ -486,10 +428,9 @@ function checkScheduledPosts() {
   });
 }
 
-// Enhanced publish post function with notifications and popup
+// Enhanced publish post function with notifications
 async function publishPost(post) {
   try {
-    // Mark as ready to publish
     const posts = getScheduledPosts();
     const updatedPosts = posts.map(p => 
       p.id === post.id 
@@ -500,18 +441,23 @@ async function publishPost(post) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
     loadScheduledPosts();
     
-    // Send push notification
-    sendNotification(post);
+    // Send notification
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('⏰ Time to Post!', {
+        body: `"${post.content.substring(0, 60)}${post.content.length > 60 ? '...' : ''}"`,
+        requireInteraction: true
+      });
+    }
     
-    // Show in-app popup
+    // Show popup
     showPostReadyPopup(post);
     
-    // If in Farcaster, try to open composer
+    // Try to open composer
     if (farcasterSDK && farcasterSDK.actions && farcasterSDK.actions.openUrl) {
-      const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(post.content)}`;
       setTimeout(() => {
+        const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(post.content)}`;
         farcasterSDK.actions.openUrl(warpcastUrl);
-      }, 2000); // Delay to let user see notification first
+      }, 2000);
     }
     
   } catch (error) {
@@ -528,7 +474,7 @@ function showPostReadyPopup(post) {
     <div class="post-ready-modal-content">
       <h3>⏰ Time to Post!</h3>
       <p>Your scheduled cast is ready:</p>
-      <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin: 16px 0; font-style: italic;">
+      <div style="background: #f8f9fa; padding: 12px; border-radius: 8px; margin: 16px 0; font-style: italic; color: #333;">
         "${post.content}"
       </div>
       <div style="text-align: center; margin-top: 20px;">
@@ -554,12 +500,14 @@ function showPostReadyPopup(post) {
   
   modal.querySelector('#post-now').onclick = () => {
     modal.remove();
-    openComposerWithContent(post.content);
+    if (farcasterSDK && farcasterSDK.actions && farcasterSDK.actions.openUrl) {
+      const warpcastUrl = `https://warpcast.com/~/compose?text=${encodeURIComponent(post.content)}`;
+      farcasterSDK.actions.openUrl(warpcastUrl);
+    }
   };
   
   modal.querySelector('#post-later').onclick = () => {
     modal.remove();
-    // Reschedule for 5 minutes later
     const newTime = new Date(Date.now() + 5 * 60 * 1000);
     const updatedPost = { ...post, scheduleTime: newTime.toISOString(), status: 'scheduled' };
     
@@ -573,39 +521,9 @@ function showPostReadyPopup(post) {
     showStatus('⏰ Reminder set for 5 minutes', 'success');
   };
   
-  // Auto-close after 30 seconds
   setTimeout(() => {
     if (document.body.contains(modal)) {
       modal.remove();
     }
   }, 30000);
-}
-
-function showPublishModal(content) {
-  const modal = document.createElement('div');
-  modal.className = 'publish-modal';
-  modal.innerHTML = `
-    <div class="publish-modal-content">
-      <h3>⏰ Time to Post!</h3>
-      <p>Your scheduled cast is ready. Copy this content and post it manually:</p>
-      <textarea readonly style="width: 100%; height: 100px; margin: 12px 0; padding: 12px; border-radius: 8px; border: 1px solid #ddd; background: #f8f9fa;">${content}</textarea>
-      <div style="text-align: center;">
-        <button onclick="navigator.clipboard.writeText('${content.replace(/'/g, "\\'")}'); showStatus('Content copied!', 'success'); this.closest('.publish-modal').remove();" style="background: #8a63d2; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; margin-right: 10px;">Copy & Close</button>
-        <button onclick="this.closest('.publish-modal').remove()" style="background: #6c757d; color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer;">Close</button>
-      </div>
-    </div>
-  `;
-  
-  modal.style.cssText = `
-    position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
-    background: rgba(0,0,0,0.8); display: flex; align-items: center; 
-    justify-content: center; z-index: 1000;
-  `;
-  
-  modal.querySelector('.publish-modal-content').style.cssText = `
-    background: white; padding: 24px; border-radius: 12px; 
-    max-width: 400px; margin: 20px; color: #333;
-  `;
-  
-  document.body.appendChild(modal);
 }

@@ -1,0 +1,18 @@
+{
+  "accountAssociation": {
+    "header": "YOUR_HEADER_HERE",
+    "payload": "YOUR_PAYLOAD_HERE", 
+    "signature": "YOUR_SIGNATURE_HERE"
+  },
+  "frame": {
+    "version": "1",
+    "name": "Cast Scheduler",
+    "iconUrl": "https://cast-scheduler.vercel.app/icon.png",
+    "homeUrl": "https://cast-scheduler.vercel.app",
+    "imageUrl": "https://cast-scheduler.vercel.app/image.png",
+    "buttonTitle": "Schedule Casts",
+    "splashImageUrl": "https://cast-scheduler.vercel.app/splash.png",
+    "splashBackgroundColor": "#8a63d2",
+    "webhookUrl": "https://cast-scheduler.vercel.app/api/webhook"
+  }
+}
