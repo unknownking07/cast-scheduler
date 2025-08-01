@@ -8,7 +8,9 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <script src="https://unpkg.com/@farcaster/frame-sdk@0.13.0/dist/sdk.js"></script>
+    
+    <!-- Farcaster Mini App Embed Metadata -->
+    <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://cast-scheduler.vercel.app/og-image.png","button":{"title":"📅 Cast Scheduler","action":{"type":"launch_frame","name":"Cast Scheduler","url":"https://cast-scheduler.vercel.app","splashImageUrl":"https://cast-scheduler.vercel.app/icon.png","splashBackgroundColor":"#8B5CF6"}}}'>
 </head>
 <body>
     <div class="container">
@@ -156,12 +158,26 @@
         </div>
     </div>
 
-    <script src="app.js"></script>
-    <script>
-        // Initialize when SDK loads
-        if (typeof window.farcasterSDK !== 'undefined') {
-            window.initializeApp();
+    <!-- Load SDK from CDN as per official docs -->
+    <script type="module">
+        import { sdk } from 'https://esm.sh/@farcaster/miniapp-sdk'
+        window.farcasterSDK = sdk;
+        
+        // Call ready immediately when SDK loads
+        if (sdk && sdk.actions && sdk.actions.ready) {
+            sdk.actions.ready().then(() => {
+                console.log('✅ Early ready() call successful');
+                if (window.initializeApp) {
+                    window.initializeApp();
+                }
+            }).catch(error => {
+                console.error('❌ Early ready() failed:', error);
+                if (window.initializeApp) {
+                    window.initializeApp();
+                }
+            });
         }
     </script>
+    <script src="app.js"></script>
 </body>
 </html>
