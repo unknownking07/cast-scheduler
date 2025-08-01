@@ -74,9 +74,49 @@ function setupEventListeners() {
     updateCharCount();
 }
 
-// Check if user is already authenticated
+// Enhanced authentication status check with SIWF session validation
 async function checkAuthStatus() {
     try {
+        // Check if we have stored SIWF authentication
+        const storedSignature = localStorage.getItem('siwf_signature');
+        const storedMessage = localStorage.getItem('siwf_message');
+        const storedFid = localStorage.getItem('user_fid');
+        const authTimestamp = localStorage.getItem('auth_timestamp');
+        
+        // Check if authentication is still valid (within 24 hours)
+        if (authTimestamp) {
+            const authAge = Date.now() - new Date(authTimestamp).getTime();
+            const maxAge = 24 * 60 * 60 * 1000; // 24 hours
+            
+            if (authAge > maxAge) {
+                console.log('🔄 Authentication expired, clearing stored data');
+                clearAuthData();
+                showAuthSection();
+                return;
+            }
+        }
+        
+        // Try to get current user data from SDK
+        if (farcasterSDK && farcasterSDK.actions && storedSignature && storedMessage && storedFid) {
+            const user = await farcasterSDK.actions.getUserData();
+            if (user && user.fid && user.fid.toString() === storedFid) {
+                console.log('✅ Existing SIWF session verified');
+                currentUser = user;
+                updateConnectionStatus(user);
+                showMainApp();
+                
+                // Check if auto-posting is set up
+                const signerUuid = localStorage.getItem('user_signer_uuid');
+                if (signerUuid) {
+                    showStatus('🤖 Auto-posting enabled!', 'success');
+                } else {
+                    await setupAutoPosting(user);
+                }
+                return;
+            }
+        }
+        
+        // Fallback: try simple getUserData for existing sessions
         if (farcasterSDK && farcasterSDK.actions) {
             const user = await farcasterSDK.actions.getUserData();
             if (user && user.fid) {
@@ -88,14 +128,15 @@ async function checkAuthStatus() {
             }
         }
     } catch (error) {
-        console.log('No existing auth:', error.message);
+        console.log('❌ Auth status check failed:', error.message);
+        clearAuthData();
     }
     
     // Show auth section if not authenticated
     showAuthSection();
 }
 
-// Handle sign in with Farcaster
+// Fixed Farcaster sign-in handler using official SIWF method
 async function handleSignIn() {
     const btn = document.getElementById('signin-btn');
     const originalText = btn.innerHTML;
@@ -104,75 +145,172 @@ async function handleSignIn() {
         btn.innerHTML = '🔄 Connecting...';
         btn.disabled = true;
         
-        // Generate nonce for security
-        const nonce = Math.random().toString(36).substring(2, 15);
-        
-        if (farcasterSDK && farcasterSDK.actions) {
-            // Try different authentication methods
-            let authResult;
-            
-            try {
-                // Method 1: Try signIn if available
-                if (farcasterSDK.actions.signIn) {
-                    authResult = await farcasterSDK.actions.signIn({
-                        nonce: nonce,
-                    });
-                }
-            } catch (signInError) {
-                console.log('SignIn method failed, trying getUserData');
-                // Method 2: Fallback to getUserData
-                authResult = await farcasterSDK.actions.getUserData();
-            }
-            
-            if (authResult && (authResult.fid || authResult.user?.fid)) {
-                const user = authResult.user || authResult;
-                currentUser = user;
-                
-                updateConnectionStatus(user);
-                showMainApp();
-                await setupAutoPosting(user);
-                showStatus('🎉 Connected successfully!', 'success');
-            } else {
-                throw new Error('Failed to get user data');
-            }
-        } else {
-            throw new Error('Farcaster SDK not available');
+        if (!farcasterSDK || !farcasterSDK.actions) {
+            throw new Error('Please open this app from within Farcaster/Warpcast');
         }
         
+        console.log('🔐 Starting SIWF authentication...');
+        
+        // Generate a secure nonce (at least 8 alphanumeric characters)
+        const nonce = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        
+        let user = null;
+        let signInResult = null;
+        
+        try {
+            // Method 1: Try the official signIn method with proper SIWF parameters
+            if (farcasterSDK.actions.signIn) {
+                console.log('Attempting SIWF signIn...');
+                signInResult = await farcasterSDK.actions.signIn({
+                    nonce: nonce,
+                    acceptAuthAddress: true // Enable for better UX as per docs
+                });
+                
+                console.log('✅ SIWF sign-in successful:', signInResult);
+                
+                // Validate the signIn response
+                if (!signInResult || !signInResult.signature || !signInResult.message) {
+                    throw new Error('Invalid sign-in response from Farcaster');
+                }
+                
+                // Now get user data after successful sign-in
+                user = await farcasterSDK.actions.getUserData();
+                
+                if (user && user.fid) {
+                    console.log('✅ User data retrieved after SIWF:', user);
+                }
+            }
+        } catch (signInError) {
+            console.log('SIWF signIn failed, trying fallback methods:', signInError.message);
+        }
+        
+        // Method 2: Fallback to getUserData if signIn failed
+        if (!user || !user.fid) {
+            try {
+                console.log('Trying getUserData fallback...');
+                user = await farcasterSDK.actions.getUserData();
+                if (user && user.fid) {
+                    console.log('✅ getUserData fallback successful:', user);
+                }
+            } catch (getUserError) {
+                console.log('getUserData fallback failed:', getUserError.message);
+            }
+        }
+        
+        // Final validation
+        if (!user || !user.fid) {
+            throw new Error('Could not authenticate with Farcaster. Please make sure you are signed into Warpcast and try again.');
+        }
+        
+        console.log('✅ Authentication successful:', user);
+        
+        // Store user info and SIWF data
+        currentUser = user;
+        localStorage.setItem('user_fid', user.fid.toString());
+        localStorage.setItem('user_username', user.username || user.displayName || 'Unknown');
+        localStorage.setItem('auth_timestamp', new Date().toISOString());
+        
+        // Store SIWF authentication data if available
+        if (signInResult && signInResult.signature && signInResult.message) {
+            localStorage.setItem('siwf_signature', signInResult.signature);
+            localStorage.setItem('siwf_message', signInResult.message);
+            localStorage.setItem('siwf_nonce', nonce);
+            console.log('📝 SIWF authentication data stored');
+        }
+        
+        // Update UI
+        updateConnectionStatus(user);
+        showMainApp();
+        
+        // Setup auto-posting with authenticated data
+        await setupAutoPosting(user, signInResult);
+        
+        btn.innerHTML = '✅ Connected!';
+        btn.style.background = '#10B981';
+        
+        showStatus('🎉 Successfully signed in with Farcaster!', 'success');
+        
     } catch (error) {
-        console.error('Sign in failed:', error);
-        showStatus('❌ Connection failed. Try manual mode.', 'error');
+        console.error('❌ SIWF authentication failed:', error);
+        
+        // Enhanced error handling
+        let errorMessage = 'Sign-in failed. ';
+        if (error.message.includes('Please open this app')) {
+            errorMessage += 'Please open this app from within Farcaster/Warpcast.';
+        } else if (error.message.includes('RejectedByUser')) {
+            errorMessage += 'You rejected the sign-in request.';
+        } else if (error.message.includes('Invalid sign-in response')) {
+            errorMessage += 'Authentication response was invalid.';
+        } else {
+            errorMessage += 'Please try again or use manual mode.';
+        }
+        
+        showStatus(`❌ ${errorMessage}`, 'error');
+        
+        // Reset button
         btn.innerHTML = originalText;
         btn.disabled = false;
+        btn.style.background = '';
     }
 }
 
-// Setup automatic posting with Neynar
-async function setupAutoPosting(user) {
+// Enhanced auto-posting setup with SIWF data
+async function setupAutoPosting(user, signInResult = null) {
     try {
-        console.log('Setting up auto-posting for FID:', user.fid);
+        console.log('🔧 Setting up auto-posting with SIWF for FID:', user.fid);
+        
+        showStatus('🔧 Setting up automatic posting...', 'success');
+        
+        const payload = {
+            fid: user.fid,
+            username: user.username || user.displayName
+        };
+        
+        // Include SIWF authentication data if available
+        if (signInResult && signInResult.signature && signInResult.message) {
+            payload.siwf_signature = signInResult.signature;
+            payload.siwf_message = signInResult.message;
+            payload.nonce = localStorage.getItem('siwf_nonce');
+            console.log('📝 Including SIWF authentication data in signer creation');
+        }
         
         const response = await fetch('/api/create-signer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fid: user.fid })
+            body: JSON.stringify(payload)
         });
         
+        if (!response.ok) {
+            throw new Error(`API responded with status: ${response.status}`);
+        }
+        
         const result = await response.json();
+        console.log('📡 Signer creation result:', result);
         
         if (result.success && result.signerUuid) {
             localStorage.setItem('user_signer_uuid', result.signerUuid);
-            localStorage.setItem('user_fid', user.fid);
-            localStorage.setItem('user_username', user.username || user.displayName || 'Unknown');
-            
-            console.log('✅ Auto-posting enabled');
-            showStatus('🤖 Auto-posting enabled!', 'success');
+            console.log('✅ Auto-posting enabled with signer:', result.signerUuid);
+            showStatus('🤖 Auto-posting enabled! Your scheduled casts will post automatically.', 'success');
         } else {
             console.log('⚠️ Auto-posting setup failed:', result.error);
+            showStatus('⚠️ Auto-posting setup failed. Manual posting will be used.', 'error');
         }
     } catch (error) {
-        console.error('Auto-posting setup error:', error);
+        console.error('❌ Auto-posting setup error:', error);
+        showStatus('⚠️ Auto-posting unavailable. You\'ll get manual notifications.', 'error');
     }
+}
+
+// Helper function to clear authentication data
+function clearAuthData() {
+    localStorage.removeItem('siwf_signature');
+    localStorage.removeItem('siwf_message');
+    localStorage.removeItem('siwf_nonce');
+    localStorage.removeItem('user_fid');
+    localStorage.removeItem('user_username');
+    localStorage.removeItem('user_signer_uuid');
+    localStorage.removeItem('auth_timestamp');
+    currentUser = null;
 }
 
 // UI state management
@@ -188,8 +326,9 @@ function showMainApp() {
 
 function updateConnectionStatus(user) {
     const statusEl = document.getElementById('connection-status');
-    if (user && user.username) {
-        statusEl.innerHTML = `● @${user.username}`;
+    if (user && (user.username || user.displayName)) {
+        const username = user.username || user.displayName;
+        statusEl.innerHTML = `● @${username}`;
         statusEl.style.display = 'block';
     }
 }
@@ -384,13 +523,15 @@ function checkScheduledPosts() {
     });
 }
 
-// Auto-publish or notify
+// Enhanced auto-publish with better error handling
 async function publishPost(post) {
     const signerUuid = localStorage.getItem('user_signer_uuid');
     
     if (signerUuid) {
         // Try auto-posting
         try {
+            console.log('🚀 Attempting auto-publish via Neynar API for:', post.content.substring(0, 50));
+            
             const response = await fetch('/api/publish-cast', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -401,12 +542,19 @@ async function publishPost(post) {
             });
             
             const result = await response.json();
+            console.log('📡 Neynar API response:', result);
             
             if (result.success) {
                 // Mark as published
                 const posts = getScheduledPosts();
                 const updatedPosts = posts.map(p => 
-                    p.id === post.id ? { ...p, status: 'published', publishedAt: new Date().toISOString() } : p
+                    p.id === post.id ? { 
+                        ...p, 
+                        status: 'published', 
+                        publishedAt: new Date().toISOString(),
+                        castHash: result.castHash,
+                        castUrl: result.castUrl
+                    } : p
                 );
                 localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
                 loadScheduledPosts();
@@ -421,29 +569,44 @@ async function publishPost(post) {
                     });
                 }
                 return;
+            } else {
+                console.error('❌ Auto-publish failed:', result.error);
             }
         } catch (error) {
-            console.error('Auto-publish failed:', error);
+            console.error('❌ Auto-publish error:', error);
         }
     }
     
     // Fallback to manual notification
+    console.log('🔄 Falling back to manual notification');
     showStatus('🔔 A scheduled post is ready!', 'success');
     
     if ('Notification' in window && Notification.permission === 'granted') {
         new Notification('⏰ Cast Ready!', {
             body: `Time to post: "${post.content.substring(0, 50)}..."`,
-            icon: '/icon.png'
+            icon: '/icon.png',
+            requireInteraction: true
         });
     }
     
-    // Open Warpcast composer
-    if (farcasterSDK && farcasterSDK.actions && farcasterSDK.actions.composeCast) {
-        try {
+    // Try to open Warpcast composer
+    try {
+        if (farcasterSDK && farcasterSDK.actions && farcasterSDK.actions.composeCast) {
             await farcasterSDK.actions.composeCast({ text: post.content });
-        } catch (error) {
+        } else {
             window.open(`https://warpcast.com/~/compose?text=${encodeURIComponent(post.content)}`, '_blank');
         }
+        
+        // Mark as manually posted
+        const posts = getScheduledPosts();
+        const updatedPosts = posts.map(p => 
+            p.id === post.id ? { ...p, status: 'posted_manually', postedAt: new Date().toISOString() } : p
+        );
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
+        loadScheduledPosts();
+        
+    } catch (composerError) {
+        console.error('❌ Failed to open composer:', composerError);
     }
 }
 
