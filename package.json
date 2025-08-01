@@ -11,7 +11,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
-    "@neynar/nodejs-sdk": "^3.29.0",
+    "@neynar/nodejs-sdk": "^3.30.0",
     "node-cron": "^4.2.1"
   }
 }
