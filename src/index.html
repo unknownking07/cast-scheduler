@@ -2,181 +2,101 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cast Scheduler - Farcaster Mini App</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Cast Scheduler</title>
     <link rel="stylesheet" href="styles.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     
-    <!-- Farcaster Mini App Embed Metadata -->
-    <meta name="fc:miniapp" content='{"version":"1","imageUrl":"https://cast-scheduler.vercel.app/og-image.png","button":{"title":"📅 Cast Scheduler","action":{"type":"launch_frame","name":"Cast Scheduler","url":"https://cast-scheduler.vercel.app","splashImageUrl":"https://cast-scheduler.vercel.app/icon.png","splashBackgroundColor":"#8B5CF6"}}}'>
+    <!-- Farcaster Mini App Metadata -->
+    <meta name="fc:frame" content='{"version":"next","imageUrl":"https://your-domain.vercel.app/og-image.png","button":{"title":"📅 Cast Scheduler","action":{"type":"launch_frame","name":"Cast Scheduler","url":"https://your-domain.vercel.app","splashImageUrl":"https://your-domain.vercel.app/icon.png","splashBackgroundColor":"#8B5CF6"}}}'>
 </head>
 <body>
-    <div class="container">
-        <!-- Enhanced Header -->
+    <div class="app-container">
+        <!-- Compact Header -->
         <div class="app-header">
-            <div class="header-content">
-                <div class="app-icon">📅</div>
+            <div class="header-main">
+                <span class="app-icon">📅</span>
                 <h1>Cast Scheduler</h1>
-                <p>Never miss the perfect posting moment</p>
             </div>
             <div class="header-actions">
-                <button class="icon-btn notification-btn" onclick="toggleNotifications()">
-                    <span class="icon">🔔</span>
-                    <span class="notification-badge" id="notification-badge" style="display: none;">!</span>
+                <div id="connection-status" class="connection-status"></div>
+                <button class="share-btn" onclick="shareApp()">🔗</button>
+            </div>
+        </div>
+
+        <!-- Status Bar -->
+        <div id="status" class="status-bar"></div>
+
+        <!-- Auth Section (shown when not connected) -->
+        <div id="auth-section" class="auth-section">
+            <div class="auth-card">
+                <div class="auth-header">
+                    <h2>🔗 Connect Your Account</h2>
+                    <p>Sign in with Farcaster to enable automatic posting</p>
+                </div>
+                <button id="signin-btn" class="signin-btn">
+                    <span class="signin-icon">🟣</span>
+                    Sign in with Farcaster
                 </button>
-                <button class="share-app-btn" onclick="shareApp()">
-                    <span class="icon">🚀</span> Share App
+                <button id="manual-mode-btn" class="manual-btn">
+                    Continue Manually
                 </button>
             </div>
         </div>
 
-        <!-- Status Messages -->
-        <div id="status" class="status"></div>
-
-        <!-- Main Content Card -->
-        <div class="main-card">
-            <!-- Compose Section -->
-            <div class="compose-section">
-                <div class="section-header">
-                    <h2>✨ Create Your Cast</h2>
-                    <div class="draft-actions">
-                        <button class="icon-btn" onclick="loadDraft()" title="Load Draft">📄</button>
-                        <button class="icon-btn" onclick="clearForm()" title="Clear">🗑️</button>
-                    </div>
-                </div>
-
-                <form id="schedule-form" class="schedule-form">
-                    <div class="textarea-container">
+        <!-- Main App (shown when connected or in manual mode) -->
+        <div id="main-app" class="main-app" style="display: none;">
+            <!-- Compose Form -->
+            <div class="compose-card">
+                <h3>✍️ Schedule Cast</h3>
+                <form id="schedule-form">
+                    <div class="form-group">
                         <textarea 
                             id="cast-content" 
-                            placeholder="What's on your mind? Share your thoughts with the Farcaster community..."
+                            placeholder="What would you like to cast?"
                             maxlength="320"
                         ></textarea>
-                        <div class="textarea-footer">
-                            <div class="char-count" id="char-count">0/320</div>
-                            <div class="engagement-tip" id="engagement-tip">💡 Add emojis and hashtags for better engagement</div>
+                        <div class="char-count">
+                            <span id="char-count">0/320</span>
                         </div>
                     </div>
 
-                    <!-- Enhanced Timing Section -->
-                    <div class="timing-section">
-                        <div class="section-header">
-                            <h3>🕒 Schedule Time</h3>
-                            <button type="button" class="optimal-btn" onclick="showOptimalTimes()">
-                                ⚡ Optimal Times
-                            </button>
-                        </div>
-
-                        <div class="datetime-input-wrapper">
-                            <input type="datetime-local" id="schedule-time" required>
-                            <div class="timezone-info">🌍 Your local timezone</div>
-                        </div>
-
-                        <!-- Quick Schedule Options -->
-                        <div class="quick-schedule">
-                            <div class="quick-schedule-header">
-                                <span>Quick Schedule:</span>
-                            </div>
-                            <div class="quick-buttons">
-                                <button type="button" class="quick-btn morning" onclick="setOptimalTime('09:00')">
-                                    🌅 9 AM Tomorrow
-                                </button>
-                                <button type="button" class="quick-btn noon" onclick="setOptimalTime('12:00')">
-                                    ☀️ 12 PM Tomorrow
-                                </button>
-                                <button type="button" class="quick-btn evening" onclick="setOptimalTime('17:00')">
-                                    🌇 5 PM Tomorrow
-                                </button>
-                                <button type="button" class="quick-btn night" onclick="setOptimalTime('20:00')">
-                                    🌙 8 PM Tomorrow
-                                </button>
-                            </div>
-                        </div>
+                    <div class="form-group">
+                        <label>⏰ Schedule Time</label>
+                        <input type="datetime-local" id="schedule-time" required>
                     </div>
 
-                    <!-- Form Actions -->
+                    <!-- Quick Time Buttons -->
+                    <div class="quick-times">
+                        <button type="button" onclick="setQuickTime(1)">+1h</button>
+                        <button type="button" onclick="setQuickTime(4)">+4h</button>
+                        <button type="button" onclick="setQuickTime(24)">Tomorrow</button>
+                    </div>
+
                     <div class="form-actions">
-                        <button type="button" class="secondary-btn" onclick="saveDraft()">
-                            <span class="icon">💾</span>
-                            Save Draft
-                        </button>
-                        <button type="submit" class="primary-btn">
-                            <span class="icon">📅</span>
-                            Schedule Cast
-                        </button>
+                        <button type="button" onclick="saveDraft()" class="secondary-btn">💾 Save</button>
+                        <button type="submit" class="primary-btn">📅 Schedule</button>
                     </div>
                 </form>
             </div>
-        </div>
 
-        <!-- Scheduled Posts Section -->
-        <div class="scheduled-posts-card">
-            <div class="section-header">
-                <h2>📋 Scheduled Posts</h2>
-                <div class="posts-count" id="posts-count">0 scheduled</div>
-            </div>
-            <div id="scheduled-list" class="scheduled-list">
-                <!-- Posts will be loaded here -->
-            </div>
-        </div>
-
-        <!-- Enhanced Footer -->
-        <div class="app-footer">
-            <div class="footer-links">
-                <span>Built with 💜 for Farcaster</span>
-            </div>
-            <div class="version-info">v2.0.0</div>
-        </div>
-    </div>
-
-    <!-- Enhanced Modals -->
-    <div id="optimal-times-modal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>⚡ Optimal Posting Times</h3>
-                <button class="close-btn" onclick="closeModal('optimal-times-modal')">✕</button>
-            </div>
-            <div class="optimal-times-grid">
-                <div class="time-slot best">
-                    <div class="time-label">🔥 Peak Time</div>
-                    <div class="time-value">8-10 AM EST</div>
-                    <div class="time-desc">Highest engagement</div>
-                </div>
-                <div class="time-slot good">
-                    <div class="time-label">✨ Good Time</div>
-                    <div class="time-value">5-7 PM EST</div>
-                    <div class="time-desc">Evening discussions</div>
-                </div>
-                <div class="time-slot decent">
-                    <div class="time-label">👍 Decent Time</div>
-                    <div class="time-value">12-2 PM EST</div>
-                    <div class="time-desc">Lunch break scrolling</div>
+            <!-- Scheduled Posts -->
+            <div class="posts-card">
+                <h3>📋 Scheduled Posts</h3>
+                <div id="scheduled-list" class="posts-list">
+                    <!-- Posts will be loaded here -->
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- Load SDK from CDN as per official docs -->
+    <!-- Load Farcaster SDK -->
     <script type="module">
         import { sdk } from 'https://esm.sh/@farcaster/miniapp-sdk'
         window.farcasterSDK = sdk;
-        
-        // Call ready immediately when SDK loads
-        if (sdk && sdk.actions && sdk.actions.ready) {
-            sdk.actions.ready().then(() => {
-                console.log('✅ Early ready() call successful');
-                if (window.initializeApp) {
-                    window.initializeApp();
-                }
-            }).catch(error => {
-                console.error('❌ Early ready() failed:', error);
-                if (window.initializeApp) {
-                    window.initializeApp();
-                }
-            });
-        }
+        window.initializeApp();
     </script>
     <script src="app.js"></script>
 </body>
