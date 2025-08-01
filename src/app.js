@@ -36,7 +36,7 @@ window.initializeApp = async function() {
     setupApp();
 };
 
-// Enhanced setup for Neynar authentication - MAIN AUTHENTICATION LOGIC
+// Enhanced setup for Neynar authentication with proper connection flow
 async function setupNeynarAuth() {
     try {
         if (!farcasterSDK || !farcasterSDK.actions) {
@@ -45,45 +45,250 @@ async function setupNeynarAuth() {
             return;
         }
 
-        console.log('🔐 Checking Farcaster authentication...');
+        console.log('🔐 Checking existing Farcaster connection...');
         
-        // Check if user is authenticated in Farcaster
+        // Check if we already have a connection
+        const existingSigner = localStorage.getItem('user_signer_uuid');
+        const existingFid = localStorage.getItem('user_fid');
+        
+        if (existingSigner && existingFid) {
+            console.log('✅ Existing connection found - FID:', existingFid);
+            
+            // Verify the connection still works
+            try {
+                const user = await farcasterSDK.actions.getUserData();
+                if (user && user.fid && user.fid.toString() === existingFid) {
+                    console.log('✅ Connection verified and active');
+                    showStatus('🤖 Auto-posting enabled! Your scheduled casts will post automatically.', 'success');
+                    updateConnectionStatus();
+                    return;
+                }
+            } catch (verifyError) {
+                console.log('⚠️ Connection verification failed, will re-connect');
+                // Clear old connection data
+                localStorage.removeItem('user_signer_uuid');
+                localStorage.removeItem('user_fid');
+                localStorage.removeItem('user_username');
+            }
+        }
+        
+        // Check if user is currently authenticated
         let user;
         try {
             user = await farcasterSDK.actions.getUserData();
-            console.log('🔍 User data received:', user);
         } catch (error) {
-            console.log('❌ User not authenticated in Farcaster:', error.message);
-            showAuthRequiredModal();
-            return;
+            console.log('❌ User not authenticated, showing connection modal');
         }
         
         if (!user || !user.fid) {
-            console.log('❌ No user FID available');
-            showAuthRequiredModal();
+            // Show connection modal instead of just info modal
+            console.log('🔗 Showing Farcaster connection modal');
+            showFarcasterConnectModal();
             return;
         }
 
+        // User is authenticated, set up auto-posting directly
         console.log('✅ User authenticated - FID:', user.fid, 'Username:', user.username);
-        
-        // Store user info
         localStorage.setItem('user_fid', user.fid);
         localStorage.setItem('user_username', user.username || 'Unknown');
         
-        // Check if we already have a working signer
-        const existingSigner = localStorage.getItem('user_signer_uuid');
-        
-        if (!existingSigner) {
-            console.log('🔧 Setting up auto-posting for first time...');
-            await createUserSigner(user.fid);
-        } else {
-            console.log('✅ Auto-posting already configured with signer:', existingSigner);
-            showStatus('🤖 Auto-posting enabled! Your scheduled casts will post automatically.', 'success');
-        }
+        await createUserSigner(user.fid);
         
     } catch (error) {
         console.error('❌ Auth setup failed:', error);
-        showAuthRequiredModal();
+        showFarcasterConnectModal();
+    }
+}
+
+// Enhanced connection modal that actually connects Farcaster account
+function showFarcasterConnectModal() {
+    const modal = document.createElement('div');
+    modal.className = 'connect-modal';
+    modal.innerHTML = `
+        <div class="connect-modal-content">
+            <div style="text-align: center; margin-bottom: 24px;">
+                <div style="font-size: 64px; margin-bottom: 16px;">🔗</div>
+                <h3 style="color: #8B5CF6; margin-bottom: 8px;">Connect Your Farcaster Account</h3>
+                <p style="color: #666; line-height: 1.5;">Grant Cast Scheduler permission to post on your behalf for automatic scheduling.</p>
+            </div>
+            
+            <div style="background: #f0f9ff; border: 1px solid #0ea5e9; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                <h4 style="color: #0369a1; margin-bottom: 12px;">🎯 What you'll get:</h4>
+                <ul style="text-align: left; margin: 0; padding-left: 20px; color: #0369a1; line-height: 1.6;">
+                    <li style="margin: 6px 0;">✨ Fully automated posting - no manual intervention needed</li>
+                    <li style="margin: 6px 0;">⚡ Posts published exactly at your scheduled times</li>
+                    <li style="margin: 6px 0;">🔒 Secure connection via Farcaster protocol</li>
+                    <li style="margin: 6px 0;">📱 Works even when you're not online</li>
+                </ul>
+            </div>
+            
+            <div style="background: #fef3c7; border: 1px solid #f59e0b; padding: 16px; border-radius: 8px; margin-bottom: 24px;">
+                <p style="color: #92400e; margin: 0; font-size: 14px;">
+                    <strong>🔐 Safe & Secure:</strong> We only get permission to post casts you schedule. We cannot access your private data or post anything else.
+                </p>
+            </div>
+            
+            <div style="text-align: center;">
+                <button id="connect-farcaster" style="background: linear-gradient(135deg, #8B5CF6, #EC4899); color: white; border: none; padding: 16px 32px; border-radius: 12px; cursor: pointer; margin-bottom: 12px; font-weight: 600; font-size: 16px; width: 100%;">
+                    🚀 Connect Farcaster Account
+                </button>
+                <button id="continue-manual" style="background: transparent; color: #6c757d; border: 1px solid #6c757d; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 500; font-size: 14px;">
+                    Continue in Manual Mode
+                </button>
+            </div>
+            
+            <div id="connection-status" style="margin-top: 16px; text-align: center; display: none;">
+                <p style="color: #8B5CF6; font-weight: 500;">🔄 Connecting to Farcaster...</p>
+            </div>
+        </div>
+    `;
+    
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
+        background: rgba(0,0,0,0.8); display: flex; align-items: center; 
+        justify-content: center; z-index: 1000; backdrop-filter: blur(5px);
+    `;
+    
+    modal.querySelector('.connect-modal-content').style.cssText = `
+        background: white; padding: 32px; border-radius: 20px; 
+        max-width: 520px; margin: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+        animation: slideIn 0.3s ease-out;
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Handle connection button click
+    modal.querySelector('#connect-farcaster').onclick = async () => {
+        await handleFarcasterConnection(modal);
+    };
+    
+    // Handle manual mode
+    modal.querySelector('#continue-manual').onclick = () => {
+        modal.remove();
+        showStatus('📱 Manual mode enabled - you\'ll get notifications when casts are ready', 'success');
+    };
+    
+    return modal;
+}
+
+// Enhanced connection handler that properly signs in the user
+async function handleFarcasterConnection(modal) {
+    const connectBtn = modal.querySelector('#connect-farcaster');
+    const statusDiv = modal.querySelector('#connection-status');
+    
+    try {
+        // Show loading state
+        connectBtn.textContent = '🔄 Connecting...';
+        connectBtn.disabled = true;
+        statusDiv.style.display = 'block';
+        statusDiv.innerHTML = '<p style="color: #8B5CF6; font-weight: 500;">🔄 Requesting Farcaster sign-in...</p>';
+        
+        // Step 1: Verify Farcaster SDK is available
+        if (!farcasterSDK || !farcasterSDK.actions) {
+            throw new Error('Farcaster SDK not available. Please open this app from within Farcaster/Warpcast.');
+        }
+        
+        // Step 2: Generate a random nonce for security
+        const nonce = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        
+        // Step 3: CRITICAL - Use signIn to actually authenticate the user
+        statusDiv.innerHTML = '<p style="color: #8B5CF6; font-weight: 500;">🔐 Please approve the sign-in request in Farcaster...</p>';
+        
+        let signInResult;
+        let user;
+        
+        try {
+            // Try the proper signIn method first
+            if (farcasterSDK.actions.signIn) {
+                signInResult = await farcasterSDK.actions.signIn({
+                    nonce: nonce,
+                    acceptAuthAddress: true // Enable auth address support for better UX
+                });
+                console.log('✅ Sign-in successful:', signInResult);
+            }
+            
+            // Get user data after successful sign-in
+            statusDiv.innerHTML = '<p style="color: #8B5CF6; font-weight: 500;">✅ Sign-in approved! Getting user info...</p>';
+            user = await farcasterSDK.actions.getUserData();
+            
+        } catch (sdkError) {
+            console.log('⚠️ signIn method not available, trying alternative auth');
+            // Fallback: try to get user data directly
+            user = await farcasterSDK.actions.getUserData();
+            
+            if (!user || !user.fid) {
+                throw new Error('Unable to authenticate. Please make sure you are signed into Farcaster and try again.');
+            }
+        }
+        
+        if (!user || !user.fid) {
+            throw new Error('Unable to get user data after authentication');
+        }
+        
+        console.log('✅ User data retrieved:', user);
+        
+        // Step 4: Create Neynar signer with proper permissions
+        statusDiv.innerHTML = '<p style="color: #8B5CF6; font-weight: 500;">🔄 Setting up automatic posting permissions...</p>';
+        
+        const signerData = {
+            fid: user.fid
+        };
+        
+        // Include sign-in data if available
+        if (signInResult && signInResult.message && signInResult.signature) {
+            signerData.message = signInResult.message;
+            signerData.signature = signInResult.signature;
+        }
+        
+        const response = await fetch('/api/create-signer', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(signerData)
+        });
+        
+        const result = await response.json();
+        
+        if (!result.success || !result.signerUuid) {
+            throw new Error(result.error || 'Failed to set up automatic posting');
+        }
+        
+        // Step 5: Store connection info
+        localStorage.setItem('user_fid', user.fid);
+        localStorage.setItem('user_username', user.username || user.displayName || 'Unknown');
+        localStorage.setItem('user_signer_uuid', result.signerUuid);
+        localStorage.setItem('connection_timestamp', new Date().toISOString());
+        
+        if (signInResult) {
+            localStorage.setItem('sign_in_message', signInResult.message || '');
+            localStorage.setItem('sign_in_signature', signInResult.signature || '');
+        }
+        
+        // Step 6: Show success
+        statusDiv.innerHTML = '<p style="color: #10b981; font-weight: 500;">🎉 Connection successful! Auto-posting enabled.</p>';
+        connectBtn.textContent = '✅ Connected Successfully';
+        connectBtn.style.background = '#10b981';
+        
+        // Step 7: Close modal and show success message
+        setTimeout(() => {
+            modal.remove();
+            showStatus('🎉 Farcaster account connected! Your scheduled casts will now post automatically.', 'success');
+            
+            // Update UI to show connection status
+            updateConnectionStatus();
+            loadScheduledPosts();
+        }, 2000);
+        
+    } catch (error) {
+        console.error('❌ Connection failed:', error);
+        
+        // Show error state
+        statusDiv.innerHTML = `<p style="color: #ef4444; font-weight: 500;">❌ ${error.message}</p>`;
+        connectBtn.textContent = '🔄 Try Again';
+        connectBtn.disabled = false;
+        connectBtn.style.background = 'linear-gradient(135deg, #8B5CF6, #EC4899)';
+        
+        // Add retry functionality
+        connectBtn.onclick = () => handleFarcasterConnection(modal);
     }
 }
 
@@ -109,6 +314,7 @@ async function createUserSigner(fid) {
             if (result.status === 'registered') {
                 console.log('✅ Neynar signer registered successfully!');
                 showStatus('🎉 Auto-posting enabled! Your scheduled casts will post automatically via Neynar.', 'success');
+                updateConnectionStatus();
             } else if (result.status === 'pending_approval') {
                 console.log('⚠️ Signer needs approval');
                 showStatus('🔧 Auto-posting setup complete, but may need approval for some casts.', 'success');
@@ -122,59 +328,29 @@ async function createUserSigner(fid) {
     }
 }
 
-// Show modal explaining authentication requirement
-function showAuthRequiredModal() {
-    const modal = document.createElement('div');
-    modal.className = 'auth-required-modal';
-    modal.innerHTML = `
-        <div class="auth-modal-content">
-            <div style="text-align: center; margin-bottom: 20px;">
-                <div style="font-size: 64px; margin-bottom: 16px;">🔐</div>
-                <h3 style="color: #8B5CF6; margin-bottom: 8px;">Authentication Required for Auto-Posting</h3>
-                <p style="color: #666; line-height: 1.5;">To enable automatic posting via Neynar API, you need to be signed into Farcaster.</p>
-            </div>
-            
-            <div style="background: #f8f9fa; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
-                <h4 style="color: #333; margin-bottom: 12px;">📋 How to Enable Auto-Posting:</h4>
-                <ol style="text-align: left; margin: 0; padding-left: 20px; color: #555; line-height: 1.6;">
-                    <li style="margin: 8px 0;">Make sure you're signed into Warpcast/Farcaster</li>
-                    <li style="margin: 8px 0;">Open Cast Scheduler from within the Farcaster app</li>
-                    <li style="margin: 8px 0;">Grant permissions when prompted</li>
-                    <li style="margin: 8px 0;">Neynar API will handle automatic posting!</li>
-                </ol>
-            </div>
-            
-            <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
-                <p style="color: #856404; margin: 0; font-size: 14px;">
-                    <strong>📱 Manual Mode:</strong> Without authentication, you'll receive notifications to post manually when scheduled times arrive.
-                </p>
-            </div>
-            
-            <div style="text-align: center;">
-                <button onclick="this.closest('.auth-required-modal').remove()" 
-                        style="background: linear-gradient(135deg, #8B5CF6, #EC4899); color: white; border: none; padding: 14px 28px; border-radius: 12px; cursor: pointer; font-weight: 600; font-size: 15px;">
-                    Continue in Manual Mode
-                </button>
-            </div>
-        </div>
-    `;
+// Add connection status indicator to header
+function updateConnectionStatus() {
+    const headerActions = document.querySelector('.header-actions');
+    const existingStatus = document.querySelector('.connection-status');
     
-    modal.style.cssText = `
-        position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
-        background: rgba(0,0,0,0.7); display: flex; align-items: center; 
-        justify-content: center; z-index: 1000; backdrop-filter: blur(5px);
-    `;
+    if (existingStatus) {
+        existingStatus.remove();
+    }
     
-    modal.querySelector('.auth-modal-content').style.cssText = `
-        background: white; padding: 32px; border-radius: 20px; 
-        max-width: 500px; margin: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);
-        animation: slideIn 0.3s ease-out;
-    `;
+    const signerUuid = localStorage.getItem('user_signer_uuid');
+    const username = localStorage.getItem('user_username');
     
-    document.body.appendChild(modal);
-    
-    // Show status message
-    showStatus('⚠️ Auto-posting disabled - Farcaster authentication required', 'error');
+    if (signerUuid && username) {
+        const statusElement = document.createElement('div');
+        statusElement.className = 'connection-status';
+        statusElement.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 8px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 6px 12px; font-size: 12px; color: #059669; font-weight: 600;">
+                <span style="color: #10b981;">●</span>
+                Connected as @${username}
+            </div>
+        `;
+        headerActions.insertBefore(statusElement, headerActions.firstChild);
+    }
 }
 
 // Prompt user to add mini app using official SDK action
@@ -288,6 +464,7 @@ function setupApp() {
     setMinDateTime();
     startScheduleChecker();
     loadDraft();
+    updateConnectionStatus(); // Add connection status to header
 }
 
 function setupEventListeners() {
