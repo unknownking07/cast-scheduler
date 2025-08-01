@@ -19,13 +19,13 @@ window.initializeApp = async function() {
             // Try to add the mini app to user's collection
             await promptAddMiniApp();
             
-            // Setup auto-posting authentication
+            // Setup auto-posting authentication - THIS IS KEY FOR NEYNAR
             await setupNeynarAuth();
             
             showStatus('🎉 Cast Scheduler loaded in Farcaster!', 'success');
         } else {
             console.log('ℹ️ Running in standalone browser mode');
-            showStatus('📱 Running in browser mode', 'success');
+            showStatus('📱 Running in browser mode - manual posting only', 'success');
         }
     } catch (error) {
         console.error('❌ SDK initialization error:', error);
@@ -36,47 +36,145 @@ window.initializeApp = async function() {
     setupApp();
 };
 
-// Setup Neynar authentication for auto-posting
+// Enhanced setup for Neynar authentication - MAIN AUTHENTICATION LOGIC
 async function setupNeynarAuth() {
     try {
-        if (farcasterSDK && farcasterSDK.actions) {
-            // Get user's FID and create signer
-            const user = await farcasterSDK.actions.getUserData();
-            
-            if (user && user.fid) {
-                // Store user info
-                localStorage.setItem('user_fid', user.fid);
-                localStorage.setItem('user_username', user.username);
-                
-                // Create or get signer UUID for this user
-                await createUserSigner(user.fid);
-                
-                showStatus('🔗 Auto-posting setup complete!', 'success');
-            }
+        if (!farcasterSDK || !farcasterSDK.actions) {
+            console.log('⚠️ Farcaster SDK not available - manual mode only');
+            showStatus('📱 Manual posting mode - you\'ll get notifications when it\'s time to post', 'success');
+            return;
         }
+
+        console.log('🔐 Checking Farcaster authentication...');
+        
+        // Check if user is authenticated in Farcaster
+        let user;
+        try {
+            user = await farcasterSDK.actions.getUserData();
+            console.log('🔍 User data received:', user);
+        } catch (error) {
+            console.log('❌ User not authenticated in Farcaster:', error.message);
+            showAuthRequiredModal();
+            return;
+        }
+        
+        if (!user || !user.fid) {
+            console.log('❌ No user FID available');
+            showAuthRequiredModal();
+            return;
+        }
+
+        console.log('✅ User authenticated - FID:', user.fid, 'Username:', user.username);
+        
+        // Store user info
+        localStorage.setItem('user_fid', user.fid);
+        localStorage.setItem('user_username', user.username || 'Unknown');
+        
+        // Check if we already have a working signer
+        const existingSigner = localStorage.getItem('user_signer_uuid');
+        
+        if (!existingSigner) {
+            console.log('🔧 Setting up auto-posting for first time...');
+            await createUserSigner(user.fid);
+        } else {
+            console.log('✅ Auto-posting already configured with signer:', existingSigner);
+            showStatus('🤖 Auto-posting enabled! Your scheduled casts will post automatically.', 'success');
+        }
+        
     } catch (error) {
-        console.error('Auth setup failed:', error);
-        showStatus('⚠️ Auto-posting not available - manual posting only', 'error');
+        console.error('❌ Auth setup failed:', error);
+        showAuthRequiredModal();
     }
 }
 
+// Create and register signer with Neynar API
 async function createUserSigner(fid) {
     try {
+        showStatus('🔧 Setting up auto-posting with Neynar API... This may take a moment.', 'success');
+        
+        console.log('📡 Calling Neynar API to create signer for FID:', fid);
+        
         const response = await fetch('/api/create-signer', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ fid })
+            body: JSON.stringify({ fid: fid })
         });
         
         const result = await response.json();
+        console.log('📡 Neynar signer response:', result);
         
-        if (result.signerUuid) {
+        if (result.success && result.signerUuid) {
             localStorage.setItem('user_signer_uuid', result.signerUuid);
-            console.log('✅ Signer created successfully');
+            
+            if (result.status === 'registered') {
+                console.log('✅ Neynar signer registered successfully!');
+                showStatus('🎉 Auto-posting enabled! Your scheduled casts will post automatically via Neynar.', 'success');
+            } else if (result.status === 'pending_approval') {
+                console.log('⚠️ Signer needs approval');
+                showStatus('🔧 Auto-posting setup complete, but may need approval for some casts.', 'success');
+            }
+        } else {
+            throw new Error(result.error || 'Failed to create Neynar signer');
         }
     } catch (error) {
-        console.error('Failed to create signer:', error);
+        console.error('❌ Failed to create Neynar signer:', error);
+        showStatus('❌ Auto-posting setup failed. You\'ll receive manual notifications instead.', 'error');
     }
+}
+
+// Show modal explaining authentication requirement
+function showAuthRequiredModal() {
+    const modal = document.createElement('div');
+    modal.className = 'auth-required-modal';
+    modal.innerHTML = `
+        <div class="auth-modal-content">
+            <div style="text-align: center; margin-bottom: 20px;">
+                <div style="font-size: 64px; margin-bottom: 16px;">🔐</div>
+                <h3 style="color: #8B5CF6; margin-bottom: 8px;">Authentication Required for Auto-Posting</h3>
+                <p style="color: #666; line-height: 1.5;">To enable automatic posting via Neynar API, you need to be signed into Farcaster.</p>
+            </div>
+            
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                <h4 style="color: #333; margin-bottom: 12px;">📋 How to Enable Auto-Posting:</h4>
+                <ol style="text-align: left; margin: 0; padding-left: 20px; color: #555; line-height: 1.6;">
+                    <li style="margin: 8px 0;">Make sure you're signed into Warpcast/Farcaster</li>
+                    <li style="margin: 8px 0;">Open Cast Scheduler from within the Farcaster app</li>
+                    <li style="margin: 8px 0;">Grant permissions when prompted</li>
+                    <li style="margin: 8px 0;">Neynar API will handle automatic posting!</li>
+                </ol>
+            </div>
+            
+            <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 16px; border-radius: 8px; margin-bottom: 20px;">
+                <p style="color: #856404; margin: 0; font-size: 14px;">
+                    <strong>📱 Manual Mode:</strong> Without authentication, you'll receive notifications to post manually when scheduled times arrive.
+                </p>
+            </div>
+            
+            <div style="text-align: center;">
+                <button onclick="this.closest('.auth-required-modal').remove()" 
+                        style="background: linear-gradient(135deg, #8B5CF6, #EC4899); color: white; border: none; padding: 14px 28px; border-radius: 12px; cursor: pointer; font-weight: 600; font-size: 15px;">
+                    Continue in Manual Mode
+                </button>
+            </div>
+        </div>
+    `;
+    
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; right: 0; bottom: 0; 
+        background: rgba(0,0,0,0.7); display: flex; align-items: center; 
+        justify-content: center; z-index: 1000; backdrop-filter: blur(5px);
+    `;
+    
+    modal.querySelector('.auth-modal-content').style.cssText = `
+        background: white; padding: 32px; border-radius: 20px; 
+        max-width: 500px; margin: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+        animation: slideIn 0.3s ease-out;
+    `;
+    
+    document.body.appendChild(modal);
+    
+    // Show status message
+    showStatus('⚠️ Auto-posting disabled - Farcaster authentication required', 'error');
 }
 
 // Prompt user to add mini app using official SDK action
@@ -126,7 +224,7 @@ function showAddAppDialog() {
                         <li style="margin: 8px 0;">⚡ Quick access from your app drawer</li>
                         <li style="margin: 8px 0;">📱 Easy scheduling on the go</li>
                         <li style="margin: 8px 0;">🎯 Optimal timing suggestions</li>
-                        <li style="margin: 8px 0;">🤖 Automatic posting to Farcaster</li>
+                        <li style="margin: 8px 0;">🤖 Automatic posting via Neynar API</li>
                     </ul>
                 </div>
                 
@@ -345,7 +443,7 @@ function handleScheduleSubmit(e) {
     // Check if auto-posting is enabled
     const signerUuid = localStorage.getItem('user_signer_uuid');
     if (signerUuid) {
-        showStatus('🎉 Cast scheduled successfully! It will be automatically posted at the scheduled time.', 'success');
+        showStatus('🎉 Cast scheduled successfully! It will be automatically posted via Neynar API at the scheduled time.', 'success');
     } else {
         showStatus('🎉 Cast scheduled successfully! You\'ll get notified when it\'s time to post.', 'success');
     }
@@ -397,7 +495,7 @@ function loadScheduledPosts() {
     
     // Check if auto-posting is enabled
     const signerUuid = localStorage.getItem('user_signer_uuid');
-    const autoPostStatus = signerUuid ? '🤖 Auto-post' : '📱 Manual';
+    const autoPostStatus = signerUuid ? '🤖 Auto-post (Neynar)' : '📱 Manual';
     
     listContainer.innerHTML = posts.map(post => `
         <div class="post-item">
@@ -510,9 +608,9 @@ function showStatus(message, type) {
     }, 5000);
 }
 
-// Enhanced schedule checker with auto-publishing
+// Enhanced schedule checker with auto-publishing via Neynar
 function startScheduleChecker() {
-    setInterval(checkScheduledPosts, 60000);
+    setInterval(checkScheduledPosts, 60000); // Check every minute
 }
 
 function checkScheduledPosts() {
@@ -536,12 +634,18 @@ function checkScheduledPosts() {
 // Enhanced publish post function with Neynar API integration
 async function publishPost(post) {
     try {
-        console.log('🚀 Auto-publishing scheduled cast:', post.content);
+        console.log('🚀 Attempting to auto-publish via Neynar API:', post.content.substring(0, 50) + '...');
         
         // Get user's signer UUID (stored during auth)
         const signerUuid = localStorage.getItem('user_signer_uuid');
+        const userFid = localStorage.getItem('user_fid');
+        
+        console.log('🔍 Debug - Signer UUID:', signerUuid ? 'Found' : 'Missing');
+        console.log('🔍 Debug - User FID:', userFid || 'Missing');
         
         if (signerUuid) {
+            console.log('📡 Calling Neynar auto-publish API...');
+            
             // Try auto-publishing with Neynar API
             const response = await fetch('/api/publish-cast', {
                 method: 'POST',
@@ -555,6 +659,7 @@ async function publishPost(post) {
             });
 
             const result = await response.json();
+            console.log('📡 Neynar API Response:', result);
 
             if (result.success) {
                 // Update post status to published
@@ -566,7 +671,8 @@ async function publishPost(post) {
                             status: 'published', 
                             publishedAt: new Date().toISOString(),
                             castHash: result.castHash,
-                            castUrl: result.castUrl
+                            castUrl: result.castUrl,
+                            publishMethod: 'neynar_api'
                         }
                         : p
                 );
@@ -575,28 +681,35 @@ async function publishPost(post) {
                 loadScheduledPosts();
                 
                 // Show success notification
-                showStatus(`🎉 Cast published automatically!`, 'success');
+                showStatus(`🎉 Cast published automatically via Neynar API! Check your Farcaster feed.`, 'success');
                 
                 // Send browser notification
                 if ('Notification' in window && Notification.permission === 'granted') {
                     new Notification('✅ Cast Published!', {
-                        body: `"${post.content.substring(0, 50)}..." has been posted to Farcaster`,
+                        body: `"${post.content.substring(0, 50)}..." has been posted to Farcaster via Neynar`,
                         icon: '/icon.png'
                     });
                 }
                 
+                console.log('✅ Auto-publishing via Neynar successful!');
                 return; // Exit early on success
+            } else {
+                console.error('❌ Neynar API returned error:', result.error);
             }
+        } else {
+            console.log('⚠️ No signer UUID found - auto-posting not set up');
         }
         
         // Fallback to manual notification if auto-publish fails or no signer
-        throw new Error('Auto-publish not available');
+        console.log('🔄 Falling back to manual notification...');
+        throw new Error('Auto-publish via Neynar not available');
         
     } catch (error) {
-        console.error('❌ Failed to auto-publish:', error);
+        console.error('❌ Failed to auto-publish via Neynar:', error);
         
         // Fallback to existing manual notification system
         showPostReadyNotification(post);
+        showStatus('⚠️ Auto-publish failed. Please post manually when ready.', 'error');
     }
 }
 
@@ -673,7 +786,7 @@ function showPostReadyModal(post) {
         // Mark as posted
         const posts = getScheduledPosts();
         const updatedPosts = posts.map(p => 
-            p.id === post.id ? { ...p, status: 'posted', postedAt: new Date().toISOString() } : p
+            p.id === post.id ? { ...p, status: 'posted', postedAt: new Date().toISOString(), publishMethod: 'manual' } : p
         );
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedPosts));
         loadScheduledPosts();
